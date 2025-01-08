@@ -30,6 +30,7 @@ function App() {
    const [train2Complete, setTrain2Complete] = useState(false);
    const [isTrained, setIsTrained] = useState(false);
    const [isRunning, setIsRunning] = useState(false);
+   const [isTraining, setIsTraining] = useState(false);
 
    const init = async () => {
       try {
@@ -70,6 +71,7 @@ function App() {
    }
 
    const train = async label => {
+      setIsTraining(true); // Bắt đầu trạng thái huấn luyện
       console.log(`[${label}] đang train cho máy khuôn mặt của bạn`);
       for (let i = 0; i < TRAINING_TIMES; i++) {
          console.log(`Tiến trình ${parseInt(((i + 1) / TRAINING_TIMES) * 100)}%`);
@@ -86,6 +88,7 @@ function App() {
       }
 
       checkIfTrained(); 
+      setIsTraining(false); // Kết thúc trạng thái huấn luyện
    };
    
    /**
@@ -143,6 +146,7 @@ function App() {
       setIsTrained(false); 
       setTrain1Complete(false);
       setTrain2Complete(false);
+      setTouched(false);
    };
    
    const checkIfTrained = () => {
@@ -210,6 +214,7 @@ function App() {
 
    return (
       <div className={`main ${touched ? 'touched' : ''}`}>
+         <h1>DEMO IMAGE RECOGNITION</h1>
          <video 
             ref={video}
             className="video"
@@ -218,11 +223,11 @@ function App() {
 
          <div className="control">         
             {!train1Complete && (
-               <button className="btn" onClick={() => train(NOT_TOUCH_LABEL)} disabled={!isReady}>Bắt Đầu</button>
-            )}
+               <button className="btn" onClick={() => train(NOT_TOUCH_LABEL)} disabled={!isReady || isTraining}>Bắt Đầu</button>
+            )}                            
             {train1Complete && !train2Complete && (
-               <button className="btn" onClick={() => train(TOUCHED_LABEL)} disabled={false}>Bắt Đầu</button>
-            )}
+               <button className="btn" onClick={() => train(TOUCHED_LABEL)} disabled={isTraining}>Bắt Đầu</button>
+            )} 
             {train2Complete && !isRunning && (
                <button className="btn" onClick={() => run()} disabled={false}>Chạy</button>
             )}
@@ -232,10 +237,12 @@ function App() {
 
             <h2 className="status">
                {!isReady && <p>Đang khởi động.....vui lòng chờ</p>}
-               {isReady && !train1Complete && <p>Bắt đầu học với khuôn mặt chưa chạm tay. Đang chạy...</p>}
-               {train1Complete && !train2Complete && <p>Bắt đầu học với khuôn mặt đang chạm tay. Đang chạy...</p>}
+               {isReady && !train1Complete && !isTraining && <p>Bắt đầu học với khuôn mặt chưa chạm tay.</p>}
+               {isReady && !train1Complete && isTraining && <p>Đang chạy...</p>}
+               {train1Complete && !train2Complete && !isTraining && <p>Bắt đầu học với khuôn mặt sắp chạm tay.</p>}
+               {train1Complete && !train2Complete && isTraining && <p>Đang chạy...</p>}
                {train2Complete && isTrained && !isRunning && <p>Chạy hệ thống hoặc xóa dữ liệu nếu muốn</p>}
-               {isRunning && <p>Hệ thống đang chạy...</p>} {/* Thêm thông báo khi hệ thống đang chạy */}
+               {isRunning && <p>Hệ thống đang chạy...</p>}
             </h2>
 
          </div>
