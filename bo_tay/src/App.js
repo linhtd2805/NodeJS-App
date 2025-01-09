@@ -4,6 +4,8 @@ import { initNotifications, notify } from '@mycv/f8-notification';
 import * as tf from '@tensorflow/tfjs';
 import * as mobilenet from '@tensorflow-models/mobilenet';
 import * as knnClassifier from '@tensorflow-models/knn-classifier';
+import * as faceDetection from '@tensorflow-models/face-detection';
+import '@tensorflow/tfjs-backend-webgl';
 import '@tensorflow/tfjs-backend-cpu';
 import './App.css';
 import soundURL from './assets/oi-ban-oi.mp3'
@@ -22,6 +24,7 @@ function App() {
    const mobilenetModule = useRef();
    const classifier = useRef();
    const canPlaySound = useRef(true);
+   const faceDetector = useRef(null);
    // Thêm state để kiểm tra có chạm hay không
    const [touched, setTouched] = useState(false);
    // Thêm state để kiểm tra khởi tạo hoàn tất
@@ -31,6 +34,8 @@ function App() {
    const [isTrained, setIsTrained] = useState(false);
    const [isRunning, setIsRunning] = useState(false);
    const [isTraining, setIsTraining] = useState(false);
+   // Thêm state cho tiến trình huấn luyện
+   const [trainingProgress, setTrainingProgress] = useState(0); 
 
    const init = async () => {
       try {
@@ -38,6 +43,7 @@ function App() {
 
          classifier.current = knnClassifier.create();
          mobilenetModule.current = await mobilenet.load(); 
+         await initFaceDetection(); // Khởi tạo phát hiện khuôn mặt
 
          initNotifications({ cooldown: 3000 });
          setIsReady(true); // Đặt isReady thành true khi hoàn tất khởi tạo
@@ -45,6 +51,22 @@ function App() {
          console.error("Khởi tạo lỗi: ", error);
       }
    }
+
+   // Khởi tạo mô hình phát hiện khuôn mặt
+   const initFaceDetection = async () => {
+      faceDetector.current = await faceDetection.createDetector(faceDetection.SupportedModels.MediaPipeFaceDetector, {
+         runtime: 'tfjs',
+         maxFaces: 1, // Chỉ kiểm tra một khuôn mặt
+      });
+   };
+
+   // Hàm kiểm tra có khuôn mặt trong khung hình
+   const detectFace = async () => {
+      if (!faceDetector.current || !video.current) return false;
+
+      const faces = await faceDetector.current.estimateFaces(video.current);
+      return faces.length > 0;
+   };
 
    const setupCamera = () => {
       return new Promise((resolve, reject) => {
@@ -73,10 +95,24 @@ function App() {
    const train = async label => {
       setIsTraining(true); // Bắt đầu trạng thái huấn luyện
       console.log(`[${label}] đang train cho máy khuôn mặt của bạn`);
+
       for (let i = 0; i < TRAINING_TIMES; i++) {
+         const faceDetected = await detectFace(); // Kiểm tra khuôn mặt
+         if (!faceDetected) {
+            console.warn('Không phát hiện khuôn mặt, vui lòng đảm bảo khuôn mặt ở trong khung hình.');
+            alert('Không phát hiện khuôn mặt, vui lòng đảm bảo khuôn mặt ở trong khung hình.');
+            setIsTraining(false);
+            return;
+         }
+
+         // Cập nhật tiến trình
+         const progress = parseInt(((i + 1) / TRAINING_TIMES) * 100);
+         setTrainingProgress(progress);
+
          console.log(`Tiến trình ${parseInt(((i + 1) / TRAINING_TIMES) * 100)}%`);
          await training(label);
       }
+
       saveModel(); // Lưu mô hình sau khi huấn luyện
       console.log(`Train cho [${label}] đã hoàn  thành. Hình ảnh hiện tại ở:`, classifier.current.getNumClasses());
 
@@ -121,7 +157,6 @@ function App() {
                ])
             );
             classifier.current.setClassifierDataset(tensorDataset);
-            console.log('Dữ liệu được tải từ localStorage!');
          } catch (error) {
             console.error('Không tải được dữ liệu:', error);
             clearModel(); // Xóa dữ liệu lỗi
@@ -237,10 +272,10 @@ function App() {
 
             <h2 className="status">
                {!isReady && <p>Đang khởi động.....vui lòng chờ</p>}
-               {isReady && !train1Complete && !isTraining && <p>Bắt đầu học với khuôn mặt chưa chạm tay.</p>}
-               {isReady && !train1Complete && isTraining && <p>Đang chạy...</p>}
-               {train1Complete && !train2Complete && !isTraining && <p>Bắt đầu học với khuôn mặt sắp chạm tay.</p>}
-               {train1Complete && !train2Complete && isTraining && <p>Đang chạy...</p>}
+               {isReady && !train1Complete && !isTraining && <p>Quay video không chạm tay lên mặt.</p>}
+               {isReady && !train1Complete && isTraining && <p>Đang chạy...{trainingProgress}%</p>}
+               {train1Complete && !train2Complete && !isTraining && <p>Quay video đưa tay gần lên mặt.</p>}
+               {train1Complete && !train2Complete && isTraining && <p>Đang chạy...{trainingProgress}%</p>}
                {train2Complete && isTrained && !isRunning && <p>Chạy hệ thống hoặc xóa dữ liệu nếu muốn</p>}
                {isRunning && <p>Hệ thống đang chạy...</p>}
             </h2>
@@ -248,8 +283,6 @@ function App() {
          </div>
 
       </div>
-   
-
    );
    }
 
