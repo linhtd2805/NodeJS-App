@@ -40,11 +40,11 @@ function App() {
    const init = async () => {
       try {
          await setupCamera();
-
          classifier.current = knnClassifier.create();
          mobilenetModule.current = await mobilenet.load(); 
          await initFaceDetection(); // Khởi tạo phát hiện khuôn mặt
 
+         loadModel();
          initNotifications({ cooldown: 3000 });
          setIsReady(true); // Đặt isReady thành true khi hoàn tất khởi tạo
       } catch (error) {
@@ -66,6 +66,15 @@ function App() {
 
       const faces = await faceDetector.current.estimateFaces(video.current);
       return faces.length > 0;
+   };
+
+   const detectFaceWithRetry = async (retries = 3) => {
+      for (let i = 0; i < retries; i++) {
+         const faceDetected = await detectFace();
+         if (faceDetected) return true;
+         await sleep(200); // Đợi một chút trước khi kiểm tra lại
+      }
+      return false;
    };
 
    const setupCamera = () => {
@@ -97,7 +106,7 @@ function App() {
       console.log(`[${label}] đang train cho máy khuôn mặt của bạn`);
 
       for (let i = 0; i < TRAINING_TIMES; i++) {
-         const faceDetected = await detectFace(); // Kiểm tra khuôn mặt
+         const faceDetected = await detectFaceWithRetry(); // Kiểm tra khuôn mặt
          if (!faceDetected) {
             console.warn('Không phát hiện khuôn mặt, vui lòng đảm bảo khuôn mặt ở trong khung hình.');
             alert('Không phát hiện khuôn mặt, vui lòng đảm bảo khuôn mặt ở trong khung hình.');
@@ -157,6 +166,9 @@ function App() {
                ])
             );
             classifier.current.setClassifierDataset(tensorDataset);
+            setTrain1Complete(true); // Giả định mô hình đã có dữ liệu
+            setTrain2Complete(true);
+            setIsTrained(true);
          } catch (error) {
             console.error('Không tải được dữ liệu:', error);
             clearModel(); // Xóa dữ liệu lỗi
@@ -215,27 +227,31 @@ function App() {
       // Quá trình chạy liên tục (vòng lặp nhận diện)
       const embedding = mobilenetModule.current.infer(video.current, true);
       const result = await classifier.current.predictClass(embedding);
-   
-      if ((result.label === TOUCHED_LABEL || result.classIndex !== 0) && result.confidences[result.label] > TOP_CONFIDENCE) {
+
+      if (result.label === TOUCHED_LABEL && result.confidences[result.label] > TOP_CONFIDENCE) {
          setTouched(true);
          if (canPlaySound.current) {
             canPlaySound.current = false;
             sound.play();
          }
-         notify('BỎ TAY RA!', { body: 'Bạn vừa chạm tay vào mặt!' });
+         // notify('BỎ TAY RA!', { body: 'Bạn vừa chạm tay vào mặt!' });
       } else {
          setTouched(false);
       }
    
       await sleep(200);
       setIsRunning(false); // Khi quá trình hoàn tất, đặt lại trạng thái là không chạy
+      if (isRunning) {
+         return; // Đảm bảo không chạy nhiều vòng lặp song song.
+      }
+      
       run();
    };
    
-
-   const sleep = (ms = 0) => {
-      return new Promise(resolve => setTimeout(resolve, ms))
-   }
+   const sleep = (ms = 200) => {
+      const adjustedMs = isRunning ? ms : ms * 2; // Tăng thời gian nếu CPU bận
+      return new Promise(resolve => setTimeout(resolve, adjustedMs));
+   };    
 
    useEffect(() => {
       init();
@@ -258,25 +274,24 @@ function App() {
 
          <div className="control">         
             {!train1Complete && (
-               <button className="btn" onClick={() => train(NOT_TOUCH_LABEL)} disabled={!isReady || isTraining}>Bắt Đầu</button>
+               <button className="btn" onClick={() => train(NOT_TOUCH_LABEL)} disabled={!isReady || isTraining || isRunning}>Bắt Đầu</button>
             )}                            
             {train1Complete && !train2Complete && (
                <button className="btn" onClick={() => train(TOUCHED_LABEL)} disabled={isTraining}>Bắt Đầu</button>
             )} 
-            {train2Complete && !isRunning && (
+            {train1Complete && train2Complete && !isRunning && (
                <button className="btn" onClick={() => run()} disabled={false}>Chạy</button>
             )}
-            {train2Complete && (
+            {train1Complete && train2Complete && (
                <button className="btn" onClick={() => clearModel()} disabled={false}>Xóa Dữ Liệu</button>
             )}
 
             <h2 className="status">
                {!isReady && <p>Đang khởi động.....vui lòng chờ</p>}
                {isReady && !train1Complete && !isTraining && <p>Quay video không chạm tay lên mặt.</p>}
-               {isReady && !train1Complete && isTraining && <p>Đang chạy...{trainingProgress}%</p>}
                {train1Complete && !train2Complete && !isTraining && <p>Quay video đưa tay gần lên mặt.</p>}
-               {train1Complete && !train2Complete && isTraining && <p>Đang chạy...{trainingProgress}%</p>}
-               {train2Complete && isTrained && !isRunning && <p>Chạy hệ thống hoặc xóa dữ liệu nếu muốn</p>}
+               {isTraining && <progress value={trainingProgress} max="100"></progress>}
+               {train1Complete && train2Complete && isTrained && !isRunning && <p>Chạy hệ thống hoặc xóa dữ liệu nếu muốn</p>}
                {isRunning && <p>Hệ thống đang chạy...</p>}
             </h2>
 
